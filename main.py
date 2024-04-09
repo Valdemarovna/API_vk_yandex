@@ -57,9 +57,9 @@ for k,v in photo_dict.items():
         print('Папка НЕ создана или уже существует.')
 
 
-    # Запрашивает URL у яд для загрузки
+    # Запрашивает URL у яд для загрузки.
     url = 'https://cloud-api.yandex.net/v1/disk/resources/upload'
-    params = {'path': f'Image/{v["likes_count"]}.jpg'}
+    params = {'path': f'Image/{v["likes_count"]}.jpg', 'overwrite': 'true'}
     headers = {'Authorization': 'OAuth здесь_ваш_токен'}
     response = requests.get(url,
                             params=params,
