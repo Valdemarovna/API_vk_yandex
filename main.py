@@ -1,81 +1,112 @@
-# id приложения 51893580
-# id пользователя 839999473
-# яндекс токен 'ваш я_токен'
 import requests
-
-class VK:
-    def __init__(self, access_token, user_id, version='5.131'):
-        self.token = access_token
-        self.id = user_id
-        self.version = version
-        self.params = {'access_token': self.token, 'v': self.version}
-
-    def get_profile_photo(self):
-        url = 'https://api.vk.com/method/photos.get'
-        params = {'user_ids': self.id, 'album_id': 'profile', 'extended': 1}
-        response = requests.get(url, params={**self.params, **params})
-        return response.json()
-
-access_token = 'ваш access token vk'
-user_id = input('Введите ID пользователя: ')
-# user_id = '839999473'
-vk = VK(access_token, user_id)
-photo_info = vk.get_profile_photo()
-
-print(f"В данном профиле {len(photo_info['response']['items'])} фото")
-
-count_to_dl = input('Введите кол-во фото для загрузки(не более 5 фото): ')
-if int(count_to_dl) > 5:
-    print('НЕ БОЛЕЕ 5!!!')
-    exit(1)
-photo_dict = {}
-for i in photo_info['response']['items']:
-    counter = 0
-    photo_dict.setdefault(i['id'], {'likes_count': i['likes']['count'], 'photo_url': i['sizes'][-1]['url']})
-    counter +=1
-    if counter == 5 or counter == int(count_to_dl):
-        break
-
-for k,v in photo_dict.items():
-
-    # Скачиваем файл на компьютер
-    response = requests.get(v['photo_url'])
-    if 200 <= response.status_code < 300:
-        with open(f'{v["likes_count"]}.jpg', 'wb') as file:
-            file.write(response.content)
-        print(f'Файл {v["likes_count"]}.jpg скачен.')
-
-    # Создаем папку Image на яд
-    params = {'path': 'Image'}
-    headers = {'Authorization': 'OAuth здесь_ваш_токен'}
-    response = requests.put('https://cloud-api.yandex.net/v1/disk/resources',
-                            headers=headers,
-                            params=params)
-    if 200 <= response.status_code < 300:
-        print('Папка создана.')
-    else:
-        print('Папка НЕ создана или уже существует.')
+import configparser
+from datetime import datetime
+import json
 
 
-    # Запрашивает URL у яд для загрузки.
-    url = 'https://cloud-api.yandex.net/v1/disk/resources/upload'
-    params = {'path': f'Image/{v["likes_count"]}.jpg', 'overwrite': 'true'}
-    headers = {'Authorization': 'OAuth здесь_ваш_токен'}
-    response = requests.get(url,
-                            params=params,
-                            headers=headers)
-    url_for_upload = response.json().get('href', '')
-    if 200 <= response.status_code < 300:
-        print('Ссылка для сохранения файла на яндекс диск получена.')
-    else:
-        print('Ссылка для сохранения файла на яндекс диск НЕ получена.')
-        continue
+def main():
+    class VK:
+        def __init__(self, access_token, user_id):
+            self.token = access_token
+            self.id = user_id
 
-    # Загружает на диск файлы по полученному URL
-    with open(f'{v["likes_count"]}.jpg', 'rb') as file:
-        response = requests.put(url_for_upload, files={"file": file})
+        def get_profile_photo(self, count=5):
+            url = 'https://api.vk.com/method/photos.get'
+            params = {'access_token': self.token,
+                      'owner_id': self.id,
+                      'album_id': 'profile',
+                      'extended': 1,
+                      'v': '5.131',
+                      'photo_sizes': '1',
+                      'count': count
+                      }
+            response = requests.get(url, params=params)
+            photo_amount = len(response.json()['response']['items'])
+            print(f'По данному профилю получено {photo_amount} фотографий')
+            return response.json()
 
-    if 200 <= response.status_code < 300:
-        print(f'Файл {v["likes_count"]}.jpg сохранен на Яндекс диске.')
-    else:
-        print(f'Файл {v["likes_count"]}.jpg не сохранен на Яндекс диске.')
+        def get_final_json(self):
+            photo_info = vk.get_profile_photo()
+            photo_dict = {}
+            for i in photo_info['response']['items']:
+                right_date = datetime.fromtimestamp(i['date'])
+                for j in i['sizes']:
+                    if j['type'] == 'z':
+                        url_max_size =j['url']
+                if str(i['likes']['count']) in photo_dict.keys():
+                    photo_dict.setdefault(str(i['likes']['count']) + "-" + str(right_date.strftime('%Y-%m-%d')),
+                                          [url_max_size, 'z'])
+                else:
+                    photo_dict.setdefault(str(i['likes']['count']), [url_max_size, 'z'])
+            return photo_dict
+
+    class yandex:
+        def __init__(self, y_token):
+            self.token = y_token
+
+        def create_dir(self, dir_name):
+            params = {'path': dir_name,
+                      'overwrite': 'false'}
+            headers = {'Authorization': self.token}
+            response = requests.put('https://cloud-api.yandex.net/v1/disk/resources',
+                                    headers=headers,
+                                    params=params)
+            if 200 <= response.status_code < 300:
+                print(f'Папка {dir_name} на Яндекс диске создана.')
+                return response.json()
+            else:
+                print(f'Папка {dir_name} НЕ создана или уже существует.')
+
+        def get_upload_url(self, file_name, dir_name):
+            url = 'https://cloud-api.yandex.net/v1/disk/resources/upload'
+            params = {'path': f'{dir_name}/{file_name}.jpg', 'overwrite': 'true'}
+            headers = {'Authorization': self.token}
+            response = requests.get(url,
+                                    params=params,
+                                    headers=headers)
+            url_for_upload = response.json().get('href', '')
+            if 200 <= response.status_code < 300:
+                print(f'Ссылка для сохранения файла {file_name}.jpg на яндекс диск получена.')
+                return url_for_upload
+            else:
+                print(f'Ссылка для сохранения файла {file_name}.jpg на яндекс диск НЕ получена.')
+
+        def upload_photo(self, url_upload, file_url):
+            resp = requests.get(file_url)
+            response = requests.put(url_upload, data=resp.content)
+            if 200 <= response.status_code < 300:
+                print(f'Файл загружен на яндекс диск.')
+            else:
+                print(f'Файл Не загружен на яндекс диск.')
+            # return response.json
+
+    # Достаем ключи из конфигурации файла
+    config = configparser.ConfigParser()
+    config.read("tokens.ini")
+    access_token = config["info"]["vk"]
+    ytoken = config["info"]["ya"]
+
+    # Получаем ID пользователя
+    user_id = input('Введите ID пользователя: ')
+    vk = VK(access_token, user_id)
+
+    # Получаем фотографии пользователя
+    photo_info = vk.get_final_json()
+
+    # Создаем папку на яндекс диске
+    ya = yandex(ytoken)
+    ya.create_dir('photo')
+
+    # Загружаем фотогрфии на яндекс диск
+    output_json = []
+    for k, v in photo_info.items():
+        upload_url = ya.get_upload_url(k, 'photo')
+        uploaded = ya.upload_photo(upload_url, v[0])
+        output_json.append({"File name": k,
+                            "size": v[1]})
+    with open("photos.json", "w") as file:
+        json.dump(output_json, file, indent=4)
+    print(f'\nПрограмма выполнена, фотографии пользователя ID - {user_id}, успешно сохранены на Яндекс диске!')
+
+if __name__ == '__main__':
+    main()
